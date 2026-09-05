@@ -35,6 +35,7 @@ class TrainConfig:
     batch_size: int = 8
     calibration_fraction: float = 0.2
     threshold_quantile: float = 0.99
+    min_calibration_samples: int = 20
     coreset_fraction: float = 0.05
     min_coreset_size: int = 100
     max_coreset_size: int = 1000
@@ -52,6 +53,10 @@ class TrainConfig:
             raise ValueError("Kích thước batch (batch_size) phải lớn hơn 0.")
         if not 0 < self.calibration_fraction < 0.5:
             raise ValueError("calibration_fraction phải thuộc khoảng (0, 0.5).")
+        if self.min_calibration_samples < 5:
+            raise ValueError(
+                "min_calibration_samples phải >= 5 để đảm bảo ước lượng quantile có ý nghĩa."
+            )
         if not 0.5 <= self.threshold_quantile < 1.0:
             raise ValueError("threshold_quantile phải thuộc khoảng [0.5, 1.0).")
         if not 0 < self.coreset_fraction <= 1:
@@ -98,6 +103,12 @@ def parse_args() -> TrainConfig:
         help="Phân vị score normal dùng làm threshold",
     )
     parser.add_argument(
+        "--min-calibration-samples",
+        type=int,
+        default=20,
+        help="Số lượng ảnh calibration tối thiểu yêu cầu",
+    )
+    parser.add_argument(
         "--coreset-fraction",
         type=float,
         default=0.05,
@@ -117,6 +128,7 @@ def parse_args() -> TrainConfig:
         batch_size=args.batch_size,
         calibration_fraction=args.calibration_fraction,
         threshold_quantile=args.threshold_quantile,
+        min_calibration_samples=args.min_calibration_samples,
         coreset_fraction=args.coreset_fraction,
         smooth_sigma=args.smooth_sigma,
     )

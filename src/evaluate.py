@@ -38,6 +38,12 @@ def compute_aupro(masks: np.ndarray, maps: np.ndarray, max_fpr: float = 0.3) -> 
 
     Returns:
         float: Giá trị chỉ số AUPRO chuẩn hóa trong khoảng [0, 1].
+
+    Note:
+        Hàm này sử dụng phương pháp xấp xỉ tích phân số hình thang qua 200 phân vị (quantile thresholds).
+        Đây là giải pháp cân bằng tối ưu giữa độ chính xác và thời gian tính toán cho Portfolio/Production.
+        Để đối chiếu benchmark tuyệt đối với paper gốc hoặc thư viện Anomalib, việc tính toán cần quét qua
+        toàn bộ giá trị pixel duy nhất để tạo đường cong ROC liên tục.
     """
     normal = ~masks
     thresholds = np.quantile(maps, np.linspace(0, 1, 200))

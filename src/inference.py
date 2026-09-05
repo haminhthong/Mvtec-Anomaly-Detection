@@ -59,7 +59,17 @@ class AnomalyDetector:
         )
         self.model_version: str = self.config.get("version", "unknown")
         self.smooth_sigma: float = float(self.config.get("smooth_sigma", 1.0))
-        self.threshold: float = float(self.config.get("threshold", 0.0))
+
+        if "threshold" not in self.config:
+            raise ValueError(
+                f"Config tại '{config_file}' thiếu thông số 'threshold'. "
+                "Không thể suy luận khi chưa có ngưỡng phát hiện lỗi được căn chỉnh."
+            )
+        self.threshold: float = float(self.config["threshold"])
+        if self.threshold <= 0.0:
+            raise ValueError(
+                f"Ngưỡng threshold ({self.threshold}) không hợp lệ (phải > 0.0)."
+            )
 
         self.dev: str = "cuda" if torch.cuda.is_available() else "cpu"
         self.net: FeatureExtractor = FeatureExtractor().to(self.dev)
@@ -107,9 +117,10 @@ class AnomalyDetector:
         ratio = score / (self.threshold + 1e-12)
 
         # Logic đưa ra quyết định vận hành nhà máy:
-        # - score >= threshold: FAIL (Lỗi ngoại quan)
-        # - 0.8 <= ratio < 1.0: REVIEW (Cần nhân viên QC xem xét thủ công)
-        # - ratio < 0.8: PASS (Sản phẩm đạt chuẩn)
+        # - score >= threshold: FAIL (Lỗi ngoại quan vượt ngưỡng calibration)
+        # - 0.8 <= ratio < 1.0: REVIEW (Vùng đệm rà soát vận hành - Operational Heuristic Review Band;
+        #   cho phép đội ngũ QC can thiệp thủ công đối với các mẫu tiệm cận ranh giới lỗi)
+        # - ratio < 0.8: PASS (Sản phẩm đạt chuẩn an toàn)
         if score >= self.threshold:
             decision = "FAIL"
         elif ratio >= 0.8:

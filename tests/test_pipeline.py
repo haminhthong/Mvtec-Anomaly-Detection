@@ -59,19 +59,36 @@ def test_train_config_validations() -> None:
     with pytest.raises(ValueError, match="calibration_fraction"):
         TrainConfig(calibration_fraction=0.8).validate()
 
+    with pytest.raises(ValueError, match="min_calibration_samples"):
+        TrainConfig(min_calibration_samples=2).validate()
+
     with pytest.raises(ValueError, match="coreset tối thiểu/tối đa"):
         TrainConfig(min_coreset_size=500, max_coreset_size=100).validate()
 
 
 def test_random_calibration_split_is_reproducible_and_disjoint(tmp_path: Path) -> None:
     """Calibration phải tái lập được và không giao với memory bank."""
-    paths = [tmp_path / f"{index:03d}.png" for index in range(20)]
-    first_memory, first_calibration = split_normal_paths(paths, 0.2, seed=42)
-    second_memory, second_calibration = split_normal_paths(paths, 0.2, seed=42)
+    # Test với số lượng ảnh đáp ứng min_calibration_samples
+    paths = [tmp_path / f"{index:03d}.png" for index in range(100)]
+    first_memory, first_calibration = split_normal_paths(paths, 0.2, seed=42, min_calibration_samples=20)
+    second_memory, second_calibration = split_normal_paths(paths, 0.2, seed=42, min_calibration_samples=20)
     assert first_memory == second_memory
     assert first_calibration == second_calibration
     assert set(first_memory).isdisjoint(first_calibration)
-    assert len(first_calibration) == 4
+    assert len(first_calibration) == 20
+    assert len(first_memory) == 80
+
+
+def test_random_calibration_split_rejects_insufficient_samples(tmp_path: Path) -> None:
+    """Kiểm tra split_normal_paths quăng ValueError khi số mẫu calibration quá ít."""
+    paths = [tmp_path / f"{index:03d}.png" for index in range(10)]
+    with pytest.raises(ValueError, match="nhỏ hơn số lượng calibration tối thiểu"):
+        split_normal_paths(paths, 0.2, seed=42, min_calibration_samples=20)
+
+    paths_30 = [tmp_path / f"{index:03d}.png" for index in range(30)]
+    # 30 ảnh * 0.2 = 6 ảnh calibration < 20 ảnh yêu cầu
+    with pytest.raises(ValueError, match="nhỏ hơn ngưỡng yêu cầu"):
+        split_normal_paths(paths_30, 0.2, seed=42, min_calibration_samples=20)
 
 
 def test_api_pydantic_schemas() -> None:

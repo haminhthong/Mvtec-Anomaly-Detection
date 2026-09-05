@@ -71,3 +71,33 @@ def test_create_heatmap_overlay_b64() -> None:
     heat = np.random.rand(14, 14).astype(np.float32)
     b64_str = create_heatmap_overlay_b64(img, heat)
     assert b64_str.startswith("data:image/png;base64,")
+
+
+def test_inference_rejects_missing_or_invalid_threshold(tmp_path: Path) -> None:
+    """Kiểm tra AnomalyDetector báo lỗi ngay nếu config thiếu threshold hoặc threshold <= 0."""
+    from pathlib import Path
+    import joblib
+    from sklearn.neighbors import NearestNeighbors
+    from src.inference import AnomalyDetector
+
+    # Tạo dummy model artifact
+    model_dir = tmp_path / "models"
+    model_dir.mkdir(parents=True, exist_ok=True)
+    nn = NearestNeighbors(n_neighbors=1).fit(np.zeros((5, 384), dtype=np.float32))
+    joblib.dump(nn, model_dir / "patch_nn.joblib")
+
+    # Case 1: Config thiếu key 'threshold'
+    (model_dir / "config.json").write_text(
+        json.dumps({"version": "test-v1", "smooth_sigma": 1.0}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="thiếu thông số 'threshold'"):
+        AnomalyDetector(model_dir=str(model_dir))
+
+    # Case 2: Config có threshold <= 0
+    (model_dir / "config.json").write_text(
+        json.dumps({"version": "test-v1", "threshold": 0.0}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="không hợp lệ"):
+        AnomalyDetector(model_dir=str(model_dir))

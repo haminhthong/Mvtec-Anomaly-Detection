@@ -7,9 +7,11 @@ mlruns/
 data/raw/*
 data/processed/*
 models/*
+!models/.gitkeep
+!models/config.json
 reports/*.json
 reports/*.csv
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!models/.gitkeep
 !reports/.gitkeep
+!reports/test_metrics.json
+!reports/benchmark.csv
+!reports/sample_outputs/

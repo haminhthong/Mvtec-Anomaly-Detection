@@ -26,16 +26,34 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 def split_normal_paths(
-    paths: list[Path], calibration_fraction: float, seed: int
+    paths: list[Path],
+    calibration_fraction: float,
+    seed: int,
+    min_calibration_samples: int = 20,
 ) -> tuple[list[Path], list[Path]]:
-    """Tách ảnh normal ngẫu nhiên, tái lập được cho memory và calibration."""
-    if len(paths) < 10:
+    """Tách ảnh normal ngẫu nhiên, tái lập được cho memory và calibration.
+
+    Args:
+        paths: Danh sách đường dẫn ảnh bình thường (normal).
+        calibration_fraction: Tỷ lệ ảnh dành riêng cho calibration.
+        seed: Random seed cho việc xáo trộn và chia tách.
+        min_calibration_samples: Số lượng mẫu calibration tối thiểu cần có (mặc định 20).
+
+    Raises:
+        ValueError: Nếu tổng số ảnh hoặc số ảnh calibration nhỏ hơn yêu cầu thống kê.
+    """
+    if len(paths) < min_calibration_samples:
         raise ValueError(
-            "Cần tối thiểu 10 ảnh normal để tách calibration đáng tin cậy."
+            f"Tổng số ảnh normal ({len(paths)}) nhỏ hơn số lượng calibration tối thiểu yêu cầu ({min_calibration_samples})."
         )
     memory, calibration = train_test_split(
         sorted(paths), test_size=calibration_fraction, random_state=seed, shuffle=True
     )
+    if len(calibration) < min_calibration_samples:
+        raise ValueError(
+            f"Số lượng ảnh calibration ({len(calibration)}) nhỏ hơn ngưỡng yêu cầu ({min_calibration_samples}). "
+            "Hãy tăng calibration_fraction hoặc bổ sung ảnh train/good để đảm bảo ước lượng quantile đáng tin cậy."
+        )
     return sorted(memory), sorted(calibration)
 
 
@@ -48,7 +66,10 @@ def main(config: TrainConfig | None = None) -> None:
     root = find_category_root(category=config.category)
     all_paths = sorted((root / "train" / "good").glob("*.png"))
     memory_paths, calibration_paths = split_normal_paths(
-        all_paths, config.calibration_fraction, config.seed
+        all_paths,
+        config.calibration_fraction,
+        config.seed,
+        min_calibration_samples=config.min_calibration_samples,
     )
     loader = DataLoader(
         ImageFolderDataset(memory_paths),
@@ -101,6 +122,7 @@ def main(config: TrainConfig | None = None) -> None:
         },
         "calibration_method": "random_held_out_normal",
         "calibration_fraction": config.calibration_fraction,
+        "min_calibration_samples": config.min_calibration_samples,
         "threshold_quantile": config.threshold_quantile,
         "memory_images": len(memory_paths),
         "calibration_images": len(calibration_paths),
