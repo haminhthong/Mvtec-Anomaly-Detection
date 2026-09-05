@@ -1,14 +1,11 @@
-"""Module thực hiện suy luận (Inference Engine) cho hệ thống kiểm tra lỗi ngoại quan.
-
-Re-export từ package src.inference để đảm bảo tính tương thích ngược hoàn toàn.
-"""
+"""Inference package for PatchCore Anomaly Detection."""
 
 from __future__ import annotations
 
-from .inference import (
-    AnomalyDetector,
+from .decision import classify_decision_and_severity
+from .detector import AnomalyDetector
+from .localization import (
     apply_heatmap_smoothing,
-    classify_decision_and_severity,
     compute_anomalous_area_ratio,
     create_heatmap_overlay_b64,
 )

@@ -2,13 +2,13 @@
 
 Sinh ra ảnh 4 khung hình chất lượng cao:
 [Original Image] | [Ground Truth Mask] | [Anomaly Heatmap] | [Overlay & Decision]
-để nhúng trực tiếp vào README và tài liệu báo cáo nghiên cứu.
+sử dụng dual-threshold và tính toán diện tích khuyết tật (Anomalous Area Ratio).
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 # Đảm bảo thư mục gốc nằm trong sys.path khi chạy dạng script độc lập
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -22,7 +22,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
-from src.inference import AnomalyDetector
+from src.inference.detector import AnomalyDetector
 
 
 def generate_sample_comparison(
@@ -34,18 +34,19 @@ def generate_sample_comparison(
     """Sinh ảnh so sánh 4 khung hình và lưu ra file PNG."""
     detector = AnomalyDetector(model_dir="models")
     image = Image.open(image_path).convert("RGB")
-    score, heatmap = detector.score(image)
+    res = detector.inspect(image, include_overlay=False)
 
-    # Đưa ra quyết định
-    ratio = score / (detector.threshold + 1e-12)
-    if score >= detector.threshold:
-        decision = "FAIL"
+    score = res["prediction"]["anomaly_score"]
+    decision = res["prediction"]["decision"]
+    severity = res["prediction"]["severity"]
+    area_ratio = res["localization"]["anomalous_area_ratio"]
+    _, heatmap = detector.score(image)
+
+    if decision == "FAIL":
         decision_color = "crimson"
-    elif ratio >= 0.8:
-        decision = "REVIEW"
+    elif decision == "REVIEW":
         decision_color = "darkorange"
     else:
-        decision = "PASS"
         decision_color = "forestgreen"
 
     # Chuẩn bị ảnh mask
@@ -56,7 +57,7 @@ def generate_sample_comparison(
         mask_np = np.zeros((224, 224), dtype=np.uint8)
 
     # Chuẩn hóa heatmap phóng to 224x224
-    h_min, h_max = heatmap.min(), heatmap.max()
+    h_min, h_max = float(heatmap.min()), float(heatmap.max())
     norm_heat = (heatmap - h_min) / (h_max - h_min + 1e-8)
     heat_pil = Image.fromarray((norm_heat * 255).astype(np.uint8)).resize(
         (224, 224), Image.Resampling.BILINEAR
@@ -81,7 +82,7 @@ def generate_sample_comparison(
         "1. Original Image",
         "2. Ground Truth Mask",
         "3. PatchCore Anomaly Map",
-        f"4. Overlay ({decision})",
+        f"4. Overlay ({decision} - {severity})",
     ]
 
     images_to_show = [
@@ -103,12 +104,13 @@ def generate_sample_comparison(
         ax.axis("off")
 
     status_text = (
-        f"Defect: {title_suffix} | Score: {score:.3f} | Threshold: {detector.threshold:.3f} | Decision: {decision}"
+        f"Defect: {title_suffix} | Score: {score:.3f} | Review Th: {detector.review_threshold:.3f} | "
+        f"Fail Th: {detector.threshold:.3f} | Area: {area_ratio*100:.1f}% | Decision: {decision} ({severity})"
     )
     fig.suptitle(
         status_text,
         color=decision_color,
-        fontsize=13,
+        fontsize=12,
         fontweight="bold",
         y=0.06,
     )

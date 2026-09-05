@@ -1,20 +1,15 @@
-"""HTTP REST API Server phát hiện lỗi ngoại quan công nghiệp (Industrial Visual Anomaly Detection).
-
-Re-export từ package src.api để đảm bảo lệnh 'uvicorn src.api:app' hoạt động trơn tru.
-"""
+"""API package for PatchCore Anomaly Detection."""
 
 from __future__ import annotations
 
-from .api import (
-    MODEL_DIR,
+from .app import MODEL_DIR, app, health
+from .schemas import (
     HealthResponse,
     InspectionResponse,
     LocalizationResult,
     ModelInfo,
     PredictionResult,
     ReadinessResponse,
-    app,
-    health,
 )
 
 __all__ = [

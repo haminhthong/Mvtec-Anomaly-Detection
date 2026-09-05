@@ -3,18 +3,20 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
 from PIL import Image
 from src.api import MODEL_DIR, health
 from src.config import TrainConfig
-from src.evaluate import compute_aupro
-from src.utils import (
+from src.evaluation.aupro import compute_aupro
+from src.inference.detector import AnomalyDetector
+from src.inference.localization import (
     apply_heatmap_smoothing,
     create_heatmap_overlay_b64,
-    greedy_coreset,
 )
+from src.model.coreset import greedy_coreset
 
 
 def test_greedy_coreset_respects_requested_size() -> None:
@@ -44,9 +46,10 @@ def test_model_config_records_calibration_contract() -> None:
     config_file = MODEL_DIR / "config.json"
     if config_file.exists():
         config = json.loads(config_file.read_text(encoding="utf-8"))
-        assert config["schema_version"] in {1, 2}
-        assert config["calibration_images"] > 0
-        assert config["threshold"] > 0
+        assert config.get("schema_version") in {1, 2, 3}
+        cal_imgs = config.get("calibration", {}).get("calibration_images", 0) or config.get("calibration_images", 0)
+        assert cal_imgs > 0
+        assert config.get("threshold", 0) > 0
 
 
 def test_train_config_rejects_invalid_coreset_fraction() -> None:
@@ -61,8 +64,8 @@ def test_apply_heatmap_smoothing() -> None:
     raw_heat[5, 5] = 10.0
     smoothed = apply_heatmap_smoothing(raw_heat, sigma=1.0)
     assert smoothed.shape == (10, 10)
-    assert smoothed[5, 5] < 10.0  # Giá trị tại đỉnh giảm do lan tỏa xung quanh
-    assert smoothed[4, 5] > 0.0  # Điểm lân cận nhận thêm năng lượng
+    assert smoothed[5, 5] < 10.0
+    assert smoothed[4, 5] > 0.0
 
 
 def test_create_heatmap_overlay_b64() -> None:
@@ -75,16 +78,9 @@ def test_create_heatmap_overlay_b64() -> None:
 
 def test_inference_rejects_missing_or_invalid_threshold(tmp_path: Path) -> None:
     """Kiểm tra AnomalyDetector báo lỗi ngay nếu config thiếu threshold hoặc threshold <= 0."""
-    from pathlib import Path
-    import joblib
-    from sklearn.neighbors import NearestNeighbors
-    from src.inference import AnomalyDetector
-
-    # Tạo dummy model artifact
     model_dir = tmp_path / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
-    nn = NearestNeighbors(n_neighbors=1).fit(np.zeros((5, 384), dtype=np.float32))
-    joblib.dump(nn, model_dir / "patch_nn.joblib")
+    np.save(model_dir / "memory_bank.npy", np.zeros((5, 384), dtype=np.float32))
 
     # Case 1: Config thiếu key 'threshold'
     (model_dir / "config.json").write_text(

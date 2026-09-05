@@ -1,14 +1,16 @@
-"""Cấu hình và kiểm soát tham số cho hệ thống kiểm tra lỗi ngoại quan MVTec AD (PatchCore).
+"""Cấu hình và kiểm soát tham số cho hệ thống kiểm tra lỗi ngoại quan MVTec AD (PatchCore-style).
 
-Module này cung cấp dataclass TrainConfig để quản lý tất cả các tham số huấn luyện,
-hiệu chỉnh ngưỡng (calibration), kích thước memory bank coreset và các thiết lập
-xử lý bản đồ nhiệt (heatmap smoothing).
+Module này cung cấp dataclass TrainConfig và PreprocessingConfig để quản lý toàn diện
+các tham số tiền xử lý, huấn luyện, hiệu chỉnh ngưỡng kép (Dual-threshold calibration:
+P95 review, P99 fail), phân vị pixel và kích thước coreset memory bank.
 """
 
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+from .data.transforms import PreprocessingConfig
 
 # Các giá trị mặc định của hệ thống
 DEFAULT_CATEGORY: str = "bottle"
@@ -24,22 +26,30 @@ class TrainConfig:
         seed: Seed cho các bộ sinh số ngẫu nhiên nhằm đảm bảo tính tái lập.
         batch_size: Kích thước batch khi trích xuất đặc trưng hình ảnh.
         calibration_fraction: Tỷ lệ ảnh normal held-out dùng để căn chỉnh threshold.
+        review_quantile: Phân vị normal score dùng làm ngưỡng cảnh báo REVIEW (mặc định: 0.95).
+        threshold_quantile: Phân vị normal score dùng làm ngưỡng lỗi FAIL / Image Threshold (mặc định: 0.99).
+        pixel_quantile: Phân vị pixel heatmap normal dùng làm Pixel Threshold (mặc định: 0.99).
+        min_calibration_samples: Số lượng ảnh calibration tối thiểu yêu cầu (mặc định: 20).
         coreset_fraction: Tỷ lệ patch trích xuất để tạo coreset đại diện.
         min_coreset_size: Kích thước tối thiểu của tập patch memory bank coreset.
         max_coreset_size: Kích thước tối đa của tập patch memory bank coreset.
         smooth_sigma: Độ lệch chuẩn Sigma cho bộ lọc Gaussian Smoothing làm mịn anomaly map.
+        preprocessing: Cấu hình tiền xử lý ảnh (PreprocessingConfig).
     """
 
     category: str = DEFAULT_CATEGORY
     seed: int = DEFAULT_SEED
     batch_size: int = 8
     calibration_fraction: float = 0.2
+    review_quantile: float = 0.95
     threshold_quantile: float = 0.99
+    pixel_quantile: float = 0.99
     min_calibration_samples: int = 20
     coreset_fraction: float = 0.05
     min_coreset_size: int = 100
     max_coreset_size: int = 1000
     smooth_sigma: float = 1.0
+    preprocessing: PreprocessingConfig = field(default_factory=PreprocessingConfig)
 
     def validate(self) -> None:
         """Kiểm tra tính hợp lệ của tất cả các tham số cấu hình.
@@ -57,8 +67,12 @@ class TrainConfig:
             raise ValueError(
                 "min_calibration_samples phải >= 5 để đảm bảo ước lượng quantile có ý nghĩa."
             )
-        if not 0.5 <= self.threshold_quantile < 1.0:
-            raise ValueError("threshold_quantile phải thuộc khoảng [0.5, 1.0).")
+        if not (0.5 <= self.review_quantile < self.threshold_quantile < 1.0):
+            raise ValueError(
+                "review_quantile phải thuộc [0.5, threshold_quantile) và nhỏ hơn threshold_quantile."
+            )
+        if not 0.5 <= self.pixel_quantile < 1.0:
+            raise ValueError("pixel_quantile phải thuộc khoảng [0.5, 1.0).")
         if not 0 < self.coreset_fraction <= 1:
             raise ValueError("coreset_fraction phải thuộc khoảng (0, 1].")
         if not 1 <= self.min_coreset_size <= self.max_coreset_size:
@@ -97,10 +111,22 @@ def parse_args() -> TrainConfig:
         help="Tỷ lệ ảnh normal giữ riêng cho calibration",
     )
     parser.add_argument(
+        "--review-quantile",
+        type=float,
+        default=0.95,
+        help="Phân vị score normal dùng làm review_threshold",
+    )
+    parser.add_argument(
         "--threshold-quantile",
         type=float,
         default=0.99,
-        help="Phân vị score normal dùng làm threshold",
+        help="Phân vị score normal dùng làm fail_threshold (image_threshold)",
+    )
+    parser.add_argument(
+        "--pixel-quantile",
+        type=float,
+        default=0.99,
+        help="Phân vị pixel heatmap normal dùng làm pixel_threshold",
     )
     parser.add_argument(
         "--min-calibration-samples",
@@ -127,7 +153,9 @@ def parse_args() -> TrainConfig:
         seed=args.seed,
         batch_size=args.batch_size,
         calibration_fraction=args.calibration_fraction,
+        review_quantile=args.review_quantile,
         threshold_quantile=args.threshold_quantile,
+        pixel_quantile=args.pixel_quantile,
         min_calibration_samples=args.min_calibration_samples,
         coreset_fraction=args.coreset_fraction,
         smooth_sigma=args.smooth_sigma,

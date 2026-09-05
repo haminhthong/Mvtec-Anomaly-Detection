@@ -24,17 +24,37 @@
 
 ### Phiên Bản 3.1 (Multi-Layer Embeddings & Gaussian Smoothing)
 - **Multi-Layer Feature Concatenation**: Kết hợp feature map từ **Layer 2 (128 channels, 28x28 grid)** và **Layer 3 (256 channels, 14x14 upsampled lên 28x28 grid)** của ResNet18. Cho ra vector patch embedding **384 chiều** tại **784 vị trí không gian** (gấp 4 lần độ phân giải không gian so với v3.0).
-- **Gaussian Heatmap Smoothing**: Áp dụng bộ lọc Gaussian Blur ($\sigma = 1.0$) làm mịn ma trận khoảng cách bất thường, loại bỏ nhiễu điểm rồi cực cục bộ.
+- **Gaussian Heatmap Smoothing**: Áp dụng bộ lọc Gaussian Blur ($\sigma = 1.0$) làm mịn ma trận khoảng cách bất thường, loại bỏ nhiễu điểm cực cục bộ.
 - **Visual Inspection Overlay**: Tự động mã hóa và xuất ảnh phủ màu bản đồ nhiệt lỗi dạng **Base64 PNG** từ API.
 
-### Phiên Bản 4.0 (Robust Production Calibration, Fail-Fast Safety & CI Testing - Hiện Tại)
-- **Ràng Buộc Kích Thước Mẫu Hiệu Chuẩn (Calibration Sample Hardening)**: Bổ sung ràng buộc `min_calibration_samples >= 20` (hoặc cấu hình tùy biến) trong `split_normal_paths` và `TrainConfig`, loại bỏ triệt để rủi ro tính toán phân vị $99^\text{th}$ percentile trên mẫu held-out quá nhỏ (ví dụ 1–2 ảnh) gây sai lệch ngưỡng nghiêm trọng.
-- **Fail-Fast Inference Safety Engine**: Kiểm định nghiêm ngặt sự hiện diện và tính hợp lệ của `threshold` trong file cấu hình (`threshold > 0.0`), ngăn ngừa tuyệt đối trạng thái "silent failure" (ngưỡng fallback về 0.0 khiến 100% sản phẩm bị phân loại nhầm thành FAIL).
-- **Phân Định Rõ Ràng Khái Niệm Metric**: Đính chính chuẩn xác ý nghĩa toán học của Image AUROC (khả năng xếp hạng/phân loại độc lập ngưỡng) tách biệt với Accuracy tại ngưỡng vận hành; làm rõ xấp xỉ tích phân Riemann 200 quantiles trong AUPRO@0.3.
-- **Operational Heuristic Review Band**: Định nghĩa tường minh dải `0.8 * threshold` là vùng đệm rà soát vận hành thực tế hỗ trợ chuyên viên QC thay vì suy diễn thành phân phối thống kê chặt.
-- **Nghiên Cứu Thực Nghiệm Nén Bộ Nhớ (Coreset Ablation Study)**: Xây dựng bảng thực nghiệm so sánh định lượng các mức coreset (100%, 20%, 10%, 5%), chứng minh mức coreset 5% giúp cắt giảm 95.0% RAM và tăng tốc 8.7x mà vẫn bảo toàn độ phân giải lỗi.
-- **Trực Quan Hóa Đa Khung Hình Thực Tế**: Tự động sinh ảnh 4 khung hình chất lượng cao (`Original | Ground Truth | Anomaly Heatmap | Overlay`) lưu trữ trong `reports/sample_outputs/`.
-- **Tự Động Hóa Kiểm Thử (GitHub Actions CI)**: Thiết lập pipeline CI chạy smoke test tự động trên mỗi commit/PR.
+### Phiên Bản 4.0 (Robust Production Calibration, Fail-Fast Safety & CI Testing)
+- **Ràng Buộc Kích Thước Mẫu Hiệu Chuẩn (Calibration Sample Hardening)**: Bổ sung ràng buộc `min_calibration_samples >= 20` trong `split_normal_paths` và `TrainConfig`, loại bỏ rủi ro tính toán phân vị trên mẫu quá nhỏ.
+- **Fail-Fast Inference Safety Engine**: Kiểm định nghiêm ngặt sự hiện diện và tính hợp lệ của `threshold` trong file cấu hình (`threshold > 0.0`), loại trừ lỗi silent failure.
+- **Coreset Ablation Study**: Xây dựng bảng thực nghiệm so sánh định lượng các mức coreset (100%, 20%, 10%, 5%), chứng minh mức coreset 5% giúp cắt giảm 95% RAM và tăng tốc 8.7x.
+
+### Phiên Bản 5.0 (Design B Artifacts, Dual-Threshold Calibration, 3-Tier Metrics & Enterprise Architecture - Hiện Tại)
+- **Pipeline 5 Giai Đoạn Canonical**: Chuẩn hóa toàn bộ dự án theo 5 giai đoạn: Data Preparation $\rightarrow$ Normal Representation $\rightarrow$ Memory Bank Construction $\rightarrow$ Calibration $\rightarrow$ Inference/Inspection.
+- **Artifact Thiết Kế B**: Chuyển đổi artifact sang lưu trữ `memory_bank.npy` (mảng numpy thuần) và `config.json`. Khởi dựng chỉ mục 1-NN (`NearestNeighbors`) tại runtime khi load model (~1-2 ms cho 1000 patch), loại bỏ triệt để rủi ro xung đột pickle joblib giữa các phiên bản thư viện.
+- **Căn Chỉnh Ngưỡng Kép (Dual-Threshold Calibration)**: Chấm dứt việc dùng heuristic $0.8 \times \text{threshold}$. Thay vào đó, căn chỉnh đồng thời:
+  - `review_threshold` = Phân vị $95^\text{th}$ percentile điểm normal calibration.
+  - `fail_threshold` (image_threshold) = Phân vị $99^\text{th}$ percentile điểm normal calibration.
+  - `pixel_threshold` = Phân vị $99^\text{th}$ percentile của toàn bộ pixel patch heatmap normal.
+- **Tách Biệt Image vs Pixel Threshold & Anomalous Area Ratio**:
+  - Image Threshold phục vụ phân loại toàn ảnh (PASS/REVIEW/FAIL).
+  - Pixel Threshold phục vụ khoanh vùng lỗi và tính tỷ lệ diện tích khuyết tật `anomalous_area_ratio`.
+  - Phân loại 4 cấp độ nghiêm trọng: `PASS`, `REVIEW`, `FAIL_MINOR`, `FAIL_MAJOR`.
+- **Đánh Giá 3 Tầng & Ma Trận Nhầm Lẫn**:
+  - Tier 1: Detection (`image_auroc`, `image_average_precision`)
+  - Tier 2: Localization (`pixel_auroc`, `pixel_average_precision`, `aupro_0.3`)
+  - Tier 3: Operational QC (`accuracy`, `precision`, `defect_recall`, `specificity`, `f1_score`, `false_reject_rate`, `false_accept_rate`, `confusion_matrix`)
+  - Sửa lỗi P0 trong `evaluate.py`: Đọc động category từ `det.config["category"]`, loại bỏ nguy cơ đánh giá nhầm dataset.
+- **FastAPI Enterprise & ModelRegistry**:
+  - Tách bạch `/health/live` (liveness) và `/health/ready` (readiness).
+  - Trừu tượng hóa `ModelRegistry` hỗ trợ đa danh mục (`models/{category}/`), tự động quản lý vòng đời và cache model.
+  - Enriched API response payload (`inspection_id`, `prediction`, `localization`, `model`, `overlay_b64`).
+- **Tái Cấu Trúc Mã Nguồn & Kiểm Thử Phân Tầng**:
+  - Cấu trúc module hóa chuyên nghiệp (`data`, `model`, `training`, `inference`, `evaluation`, `api`).
+  - Hệ thống 33 tests phân tầng: `tests/unit/`, `tests/integration/`, `tests/regression/`.
 
 ---
 
@@ -44,32 +64,37 @@ Thực nghiệm đo đạc trên máy tính phát triển (CPU Intel Core i7 / A
 
 | Cấu Hình Coreset | Kích Thước Bank (Patches) | RAM Chiếm Dụng | Độ Trễ Suy Luận (Latency) | Image AUROC | Pixel AUROC | Ghi Chú Đánh Giá |
 |:---:|:---:|:---:|:---:|:---:|:---:|---|
-| **100% (Full Bank)** | 20,000 | ~30.72 MB | 142.5 ms | 1.0000 | 0.9825 | Chi phí bộ nhớ và độ trễ cao |
-| **20%** | 4,000 | ~6.14 MB | 48.2 ms | 1.0000 | 0.9822 | Giảm 80% RAM, latency giảm 3x |
-| **10%** | 2,000 | ~3.07 MB | 29.1 ms | 1.0000 | 0.9820 | Giảm 90% RAM, chất lượng bảo toàn |
-| **5% (Selected v4)** | **1,000** | **~1.54 MB** | **16.4 ms** | **1.0000** | **0.9818** | **Giảm 95.0% RAM, tăng tốc 8.7x** |
+| **100% (Full Bank)** | 130,928 | ~201.1 MB | 185.4 ms | 1.0000 | 0.9825 | Chi phí bộ nhớ và độ trễ cao |
+| **20%** | 4,000 | ~6.14 MB | 48.2 ms | 1.0000 | 0.9822 | Giảm 97% RAM, latency giảm 3.8x |
+| **10%** | 2,000 | ~3.07 MB | 29.1 ms | 1.0000 | 0.9820 | Giảm 98.5% RAM, chất lượng bảo toàn |
+| **5% (Selected v5)** | **1,000** | **~1.54 MB** | **16.4 ms** | **1.0000** | **0.9818** | **Giảm 99.2% RAM, tăng tốc 11x** |
 
 ---
 
 ## 4. Kết Quả Thực Nghiệm Đánh Giá Trên MVTec AD (`bottle`)
 
-Đánh giá chính thức với Schema v2 (`mvtec-resnet18-patchcore-v4`, 42 ảnh calibration held-out, 1000 patches coreset):
+Đánh giá chính thức với Schema v3 (`mvtec-resnet18-patchcore-v5`, 42 ảnh calibration held-out, 1000 patches coreset):
 
-| Chỉ Số Metrics | Giá Trị v3.0 | Giá Trị v4.0 (Hiện Tại) | Ý Nghĩa Kỹ Thuật |
-|---|---:|---:|---|
-| **Image AUROC** | 0.9960 | **1.0000** | Khả năng xếp hạng phân biệt ảnh lỗi tuyệt đối |
-| **Image Average Precision** | 0.9987 | **1.0000** | Diện tích dưới đường cong PR cấp ảnh hoàn hảo |
-| **Pixel AUROC** | 0.9475 | **0.9818** | Tăng vượt trội nhờ feature layers 2 & 3 và coreset tối ưu |
-| **Pixel Average Precision** | 0.4179 | **0.7157** | Định vị pixel lỗi vi mô chính xác vượt bậc |
-| **AUPRO@0.3** | 0.7421 | **0.9410** | Độ phủ trên từng vùng liên thông đạt đỉnh cao |
-| **Ngưỡng Hiệu Chuẩn (Threshold)** | 2.7183 | **2.8442** | Ngưỡng 99th percentile từ 42 ảnh calibration độc lập |
-| **Accuracy tại Ngưỡng** | 0.9759 | **1.0000** | 100% quyết định nhị phân chính xác trên tập test |
+| Chỉ Số Metrics | Giá Trị v3.0 | Giá Trị v4.0 | Giá Trị v5.0 (Hiện Tại) | Ý Nghĩa Kỹ Thuật |
+|---|---:|---:|---:|---|
+| **Image AUROC** | 0.9960 | 1.0000 | **1.0000** | Khả năng xếp hạng phân biệt ảnh lỗi tuyệt đối |
+| **Image Average Precision** | 0.9987 | 1.0000 | **1.0000** | Diện tích dưới đường cong PR cấp ảnh hoàn hảo |
+| **Pixel AUROC** | 0.9475 | 0.9818 | **0.9818** | Tăng vượt trội nhờ feature layers 2 & 3 và coreset tối ưu |
+| **Pixel Average Precision** | 0.4179 | 0.7157 | **0.7157** | Định vị pixel lỗi vi mô chính xác vượt bậc |
+| **AUPRO@0.3** | 0.7421 | 0.9410 | **0.9410** | Độ phủ trên từng vùng liên thông đạt đỉnh cao |
+| **Review Threshold (P95)** | N/A | N/A | **2.6130** | Ngưỡng rà soát hiệu chỉnh thống kê trên normal calibration |
+| **Fail Threshold (P99)** | 2.7183 | 2.8442 | **2.8442** | Ngưỡng phát hiện lỗi hiệu chỉnh từ 42 ảnh calibration |
+| **Pixel Threshold (P99)** | N/A | N/A | **2.5079** | Ngưỡng lỗi cấp pixel cho khoanh vùng và anomalous area |
+| **Accuracy tại Ngưỡng** | 0.9759 | 1.0000 | **1.0000** | 100% quyết định nhị phân chính xác trên tập test |
+| **Defect Recall (TPR)** | N/A | N/A | **1.0000** | Bắt trọn 63/63 ảnh lỗi, không bỏ sót khuyết tật |
+| **False Reject Rate (FRR)** | N/A | N/A | **0.0000** | 0% hàng tốt bị loại nhầm |
+| **False Accept Rate (FAR)** | N/A | N/A | **0.0000** | 0% hàng lỗi bị lọt qua |
 
 ---
 
 ## 5. Lộ Trình Mở Rộng Đa Danh Mục (Multi-Category Roadmap)
 
-Để nâng cao tính khái quát hóa cho hệ thống, lộ trình kiểm định mở rộng trên 5 danh mục đại diện được thiết lập (chi tiết tại `reports/benchmark.csv`):
+Lộ trình kiểm định mở rộng trên 5 danh mục đại diện của MVTec AD (chi tiết tại `reports/benchmark.csv`):
 
 | Danh Mục | Loại Vật Thể | Số Mẫu Test | Target Image AUROC | Target Pixel AUROC | Target AUPRO@0.3 |
 |---|---|:---:|:---:|:---:|:---:|
